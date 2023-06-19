@@ -1,0 +1,148 @@
+//@version=5
+strategy("EMA, CPR, and Time-based Exit Strategy", overlay=true)
+
+// Define input parameters
+cprLength = input.int(title="Number of Daily CPR Back", defval=100, minval=0)
+// emaLength = input(63, "EMA Length")
+emaLength =  input.int(title="Ema Length", defval=63, minval=0)
+capitalUtilization = input.int(title = "Capital Utilization Percentage", defval = 50, minval = 1)
+stopLossPercentage = input.int(title = "Stopploss Percent", defval = 3, minval = 0)
+
+amountCanBeUsed = strategy.initial_capital * capitalUtilization / 100
+
+// cprLength = input(5, "CPR Length")
+target1Percentage = input(1, "Target 1 Percentage")
+target2Percentage = input(2, "Target 2 Percentage")
+target3Percentage = input(3, "Target 3 Percentage")
+
+// Define time-based exit
+exitTime = timestamp(year, month, dayofmonth, 15, 10, 0)
+
+// Calculate EMA
+emaValue = ta.ema(close, emaLength)
+
+// Calculate CPR
+
+new_bar(res) => ta.change(time(res)) != 0
+
+new_period(condition, src) =>
+    result = 0.0
+    result := condition ? src : result[1]
+    result
+    
+pivot = (high + low + close) / 3.0
+bc = (high + low) / 2.0
+tc = (pivot - bc) + pivot
+R1 = (2*pivot) - low
+S1 = (2*pivot) - high
+R2 = pivot + ( high - low)
+S2 = pivot - ( high - low)
+R3 = high + (2*(pivot - low))
+S3 = low - (2*(high - pivot ))
+
+isNarrowCPR = (2 * math.abs(pivot - bc)) < (0.002 * close)
+// isPreviousNarrowCPR = (2 * math.abs(pivot[1] -))
+
+//Daily Central Pivot Range
+dpp = request.security( syminfo.tickerid , 'D', pivot[1], lookahead=barmerge.lookahead_on)
+dbc = request.security( syminfo.tickerid , 'D', bc[1], lookahead=barmerge.lookahead_on)
+dtc = request.security( syminfo.tickerid , 'D', tc[1], lookahead=barmerge.lookahead_on)
+dR1= request.security( syminfo.tickerid , 'D', R1[1], lookahead=barmerge.lookahead_on)
+dS1 = request.security( syminfo.tickerid , 'D', S1[1], lookahead=barmerge.lookahead_on)
+
+
+
+one_day = 1000 * 60 * 60 * 24
+new_day = cprLength > 0 and timenow - time < one_day * cprLength and new_bar("D")
+dpp_ = new_period(new_day, dpp)
+dtc_ = new_period(new_day, dtc)
+dbc_ = new_period(new_day, dbc)
+dR1_ = new_period(new_day, dR1)
+dS1_ = new_period(new_day, dS1)
+
+plot( timeframe.isintraday ? (dtc_ >= dbc_ ? dtc_ : dbc_) : na, title="Daily TC", style= plot.style_circles , color=#787B86, linewidth=2)
+plot( timeframe.isintraday ? dpp_ : na, title="Daily PP", style= plot.style_circles, color= isNarrowCPR ? #42f578 : #c50000, linewidth=2)
+plot( timeframe.isintraday ? (dtc_ >= dbc_ ? dbc_ : dtc_) : na, title="Daily BC", style= plot.style_circles, color=#2196F3, linewidth=2)
+
+// Plot EMA and CPR
+plot(emaValue, color=color.blue, linewidth=2, title="EMA")
+// plot(centralPivot, color=color.red, title="Central Pivot")
+// plot(pivotRange, color=color.gray, linewidth=2, style=plot.style_area, title="Pivot Range")
+
+// Define strategy conditions
+firstCandleClose = request.security(syminfo.tickerid, "5", close[0])
+firstCandleOpen = request.security(syminfo.tickerid, "5", open[0])
+emaAboveCPR = emaValue > dpp_[0]
+// emaAboveCPR = math.abs(emaValue - dpp_[1]) < 0.05 * close
+pivotGreater = dpp_[0] > dpp_[1] and dpp_[0] > dtc_[1] and dpp_[0] > dbc_[1]
+isPreviousNarrow = isNarrowCPR[1]
+
+isCandleClosedAboveCpr = firstCandleClose > emaValue
+
+concatString = "Buy Sign"+ " isEmaAboveCPR: " + str.tostring(emaAboveCPR) + ":isNarrowCPR: " + str.tostring(isNarrowCPR) + " - pivotGreater: " + str.tostring(pivotGreater) + " - firstCandleAboveCPR: " + str.tostring(isCandleClosedAboveCpr)
+// concatString = "Debug: " + str.tostring(isNarrowCPR[0])
+isNewDay = ta.change(dayofweek)
+
+// Plot the close price of the first candle of each day
+// plot(firstCandleClose, title="First Candle Close")
+
+// Plot the label on the first candle of each day
+if isNewDay
+    label.new(x=bar_index, y=firstCandleClose, text=concatString, color=color.yellow, textcolor=color.black, style=label.style_label_left, yloc=yloc.belowbar, size=size.small)
+
+// if isNewDay and isNarrowCPR
+//     label.new(x=bar_index, y=high, text="Narrow CPR", color=color.yellow, textcolor=color.black, style=label.style_label_left)
+
+
+
+// emaBelowCPR = emaValue < pivot
+
+// Calculate target levels
+targetLevel1 = strategy.position_avg_price * (1 + target1Percentage / 100)
+targetLevel2 = strategy.position_avg_price * (1 + target2Percentage / 100)
+targetLevel3 = strategy.position_avg_price * (1 + target3Percentage / 100)
+
+stopLoss = strategy.position_avg_price * (1 - target3Percentage / 100)
+
+rsiLength = input(14, title="RSI Length")
+overboughtLevel = input(80, title="Overbought Level")
+oversoldLevel = input(30, title="Oversold Level")
+
+// Calculate RSI
+rsiValue = ta.rsi(close, rsiLength)
+
+// Entry conditions
+isOverbought = ta.crossover(rsiValue, overboughtLevel)
+isOverSold = ta.crossunder(rsiValue, oversoldLevel)
+
+//  Removing pivotGreater condition increases profitability
+
+// Enter long position with 3 quantity when EMA is above CPR
+if firstCandleClose > firstCandleOpen and emaAboveCPR and isCandleClosedAboveCpr and isNarrowCPR and pivotGreater and strategy.opentrades == 0
+    strategy.entry("Long", strategy.long, qty = amountCanBeUsed / firstCandleClose, limit = firstCandleClose, stop = stopLoss )
+
+// Enter short position with 3 quantity when EMA is below CPR
+// if emaBelowCPR and strategy.opentrades == 0
+//     strategy.entry("Short", strategy.short, qty = 3)
+
+// Exit 1 quantity at Target 1
+// strategy.exit("Exit1", "Long", qty_percent = 50, limit=targetLevel1)
+// strategy.exit("Exit1", "Long", qty_percent = 50, stop = targetLevel1 - 5, trail_offset  = 10)
+strategy.exit("Exit1", "Long", qty_percent = 50, limit = targetLevel1)
+// strategy.exit("Exit1", "Short", qty = 1, limit=targetLevel1)
+
+// Exit 1 quantity at Target 2
+// strategy.exit("Exit2", "Long", qty_percent = 50, limit=targetLevel2)
+strategy.exit("Exit2", "Long", qty_percent = 25, limit = targetLevel2, trail_price = targetLevel1, trail_offset = strategy.position_avg_price * 0.01)
+// strategy.exit("Exit2", "Short", qty = 1, limit=targetLevel2)
+
+// Exit remaining quantity at Target 3
+strategy.exit("Exit3", "Long", trail_price = targetLevel3 - strategy.position_avg_price * 0.02, trail_offset = 5)
+// strategy.exit("Exit3", "Short", limit=targetLevel3)
+
+// Exit all positions at 3 PM IST
+if time >= exitTime
+    strategy.close_all("Time Up")
+
+if (close + close * 0.008) < emaValue
+    strategy.close_all("Going Below EMA")

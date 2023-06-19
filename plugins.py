@@ -20,13 +20,21 @@ class RSIPlugin(IndicatorPlugin):
 
 class CPR(IndicatorPlugin):
     def calculate(self, data):
+        if not (data or len(data)):
+            print("No data available to calculate CPR")
+            return False
         df = pd.DataFrame(data)
         df = df.drop(['stat', 'oi', 'intoi'], axis=1)
         df['time'] = pd.to_datetime(df['time'], format='%d-%m-%Y %H:%M:%S')
-        todayStart = datetime.datetime.now().replace(
-            hour=0, minute=0, second=0, microsecond=0)
-        yesterday = todayStart - datetime.timedelta(days=1)
-        dt_range = pd.date_range(start=yesterday, end=todayStart, freq='T')
+        previousTradingDayStart = df.iloc[0]['time'].replace(hour=9, minute=15)
+        previousTradingDayEnd = df.iloc[0]['time'].replace(hour=15, minute=30)
+        # Code to calculate cpr for friday
+        # previousTradingDayEnd = previousTradingDayEnd - \
+        #     datetime.timedelta(days=1)
+        # previousTradingDayStart = previousTradingDayStart - \
+        #     datetime.timedelta(days=1)
+        dt_range = pd.date_range(
+            start=previousTradingDayStart, end=previousTradingDayEnd, freq='T')
         df1 = df[df['time'].isin(dt_range)]
         open = float(df1.iloc[-1]['into'])
         low = float(df1['intl'].min())
@@ -40,11 +48,11 @@ class CPR(IndicatorPlugin):
         # top_cpr = 2 * central_cpr - low
 
         print(f'Shelbot\U0001F60E: Calculating Pivot Values... with',
-              open, low, high, close)
+              open, high, low, close)
 
         return {
             "pivot": {
-                "center": central_cpr,
+                "pivot": central_cpr,
                 "tc": top_cpr,
                 "bc": bottom_cpr
             },
