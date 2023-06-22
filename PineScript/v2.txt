@@ -1,9 +1,6 @@
 //@version=5
 strategy("EMA, CPR, and Time-based Exit Strategy", overlay=true)
 
-//@version=5
-strategy("EMA, CPR, and Time-based Exit Strategy", overlay=true)
-
 
 // Define input parameters
 cprLength = input.int(title="Number of Daily CPR Back", defval=100, minval=0)
@@ -43,10 +40,6 @@ bc = (high + low) / 2.0
 tc = (pivot - bc) + pivot
 R1 = (2*pivot) - low
 S1 = (2*pivot) - high
-// R2 = pivot + ( high - low)
-// S2 = pivot - ( high - low)
-// R3 = high + (2*(pivot - low))
-// S3 = low - (2*(high - pivot ))
 
 isAscending = pivot > pivot[1]
 
@@ -77,11 +70,15 @@ plot( timeframe.isintraday ? (dtc_ >= dbc_ ? dbc_ : dtc_) : na, title="Daily BC"
 
 
 // Define strategy conditions
-isBullishCandle = close > open
-emaAboveCPR = emaValue > dpp_[0]
+firstCandleClose = request.security(syminfo.tickerid, "5", close[0])
+firstCandleOpen = request.security(syminfo.tickerid, "5", open[0])
+firstCandleHigh = request.security(syminfo.tickerid, "5", high[0])
+isOpeningCandleBullish = firstCandleClose > firstCandleOpen
+emaAboveCPR = emaValue > dtc_[0]
 pivotGreater = dpp_[0] > dtc_[1] and dpp_[0] > dbc_[1] // Today pivot greater than top and bottom of previous cpr
 hasVolume = volume > volumeThreshold
-isGapUp = close[1] > close and (close[1] - close) > close[1] * 0.03
+isGapUp = (close > close[1] and ((close - close[1]) > close[1] * 0.03))
+
 
 isTodayNarrow = isNarrowCPR
 isPreviousDayNarrow = isNarrowCPR[1]
@@ -119,10 +116,10 @@ targetLevel3 = strategy.position_avg_price * (1 + target3Percentage / 100)
 //  Removing pivotGreater condition increases profitability
 
 // Enter long position with 3 quantity when EMA is above CPR
-if isBullishCandle and hasVolume and not isGapUp and (isTodayNarrow or isPreviousDayNarrow) and isCandleClosedAboveEMA
+if isNewDay and isOpeningCandleBullish and hasVolume and not isGapUp and (isTodayNarrow or isPreviousDayNarrow) and isCandleClosedAboveEMA and emaAboveCPR
     if (not isAscending and close > dtc_[1]) or isAscending
-        if volume > 2 * volume[1]
-            strategy.entry("Long", strategy.long, qty = amountCanBeUsed / close, limit = high, stop = dbc_)
+        if volume[0] > 2 * volume[1]
+            strategy.entry("Long", strategy.long, qty = amountCanBeUsed / firstCandleHigh, limit = firstCandleHigh, stop = dbc_)
 
 
 // if (isTodayNarrow or isPreviousDayNarrow) and hasVolume and isAscending and isNarrowCPR and pivotGreater and strategy.opentrades == 0
@@ -151,120 +148,5 @@ strategy.exit("Exit3", "Long", limit = targetLevel3)
 if time >= exitTime
     strategy.close_all("Time Up")
 
-if (close + close * 0.008) < emaValue
-    strategy.close_all("Going Below EMA")
-
-// Define input parameters
-cprLength = input.int(title="Number of Daily CPR Back", defval=100, minval=0)
-emaLength =  input.int(title="Ema Length", defval=63, minval=0)
-capitalUtilization = input.int(title = "Capital Utilization Percentage", defval = 50, minval = 1)
-target1Percentage = input.float(1, "Target 1 Percentage")
-target2Percentage = input.float(2, "Target 2 Percentage")
-target3Percentage = input.float(3, "Target 3 Percentage")
-volumeThreshold = input(1000, "Morning Volume Threshold")
-
-
-// Calculations
-amountCanBeUsed = strategy.initial_capital * capitalUtilization / 100
-exitTime = timestamp(year, month, dayofmonth, 15, 10, 0)
-
-
-// Calculate and plot EMA
-emaValue = ta.ema(close, emaLength)
-plot(emaValue, color=color.blue, linewidth=2, title="EMA")
-
-
-// Calculate CPR
-// CPR Helper Functions
-new_bar(res) => ta.change(time(res)) != 0
-new_period(condition, src) =>
-    result = 0.0
-    result := condition ? src : result[1]
-    result
-new_period_bool(condition, src) =>
-    result = false
-    result := condition ? src : result[1]
-    result
-    
-// Calculate Pivot Points
-pivot = (high + low + close) / 3.0
-bc = (high + low) / 2.0
-tc = (pivot - bc) + pivot
-R1 = (2*pivot) - low
-S1 = (2*pivot) - high
-
-isAscending = pivot > pivot[1]
-
-//Daily Central Pivot Range
-dpp = request.security( syminfo.tickerid , 'D', pivot[1], lookahead=barmerge.lookahead_on)
-dbc = request.security( syminfo.tickerid , 'D', bc[1], lookahead=barmerge.lookahead_on)
-dtc = request.security( syminfo.tickerid , 'D', tc[1], lookahead=barmerge.lookahead_on)
-dR1= request.security( syminfo.tickerid , 'D', R1[1], lookahead=barmerge.lookahead_on)
-dS1 = request.security( syminfo.tickerid , 'D', S1[1], lookahead=barmerge.lookahead_on)
-dascending = request.security( syminfo.tickerid , 'D', isAscending[1], lookahead=barmerge.lookahead_on)
-
-isNarrowCPR = (2 * math.abs(dpp - dbc)) < (0.002 * close) // Calculate Narrow CPR values
-
-one_day = 1000 * 60 * 60 * 24
-new_day = cprLength > 0 and timenow - time < one_day * cprLength and new_bar("D")
-dIsAscending_ = new_period_bool(new_day, dascending)
-dpp_ = new_period(new_day, dpp)
-dtc_ = new_period(new_day, dtc)
-dbc_ = new_period(new_day, dbc)
-dR1_ = new_period(new_day, dR1)
-dS1_ = new_period(new_day, dS1)
-
-
-// Plot CPR points
-plot( timeframe.isintraday ? (dtc_ >= dbc_ ? dtc_ : dbc_) : na, title="Daily TC", style= plot.style_circles , color = dIsAscending_ ? #0a39e0 : #eeaac6, linewidth=2)
-plot( timeframe.isintraday ? dpp_ : na, title="Daily PP", style= plot.style_circles, color= isNarrowCPR ? #42f578 : #c50000, linewidth=2)
-plot( timeframe.isintraday ? (dtc_ >= dbc_ ? dbc_ : dtc_) : na, title="Daily BC", style= plot.style_circles, color=#76797a, linewidth=2)
-
-
-// Define strategy conditions
-isBullishCandle = close > open
-emaAboveCPR = emaValue > dpp_[0]
-pivotGreater = dpp_[0] > dtc_[1] and dpp_[0] > dbc_[1] // Today pivot greater than top and bottom of previous cpr
-hasVolume = volume > volumeThreshold
-isGapUp = close[1] > close and (close[1] - close) > close[1] * 0.03
-isTodayNarrow = isNarrowCPR
-isPreviousDayNarrow = isNarrowCPR[1]
-isTodayAscendingCPR = dIsAscending_
-isCandleClosedAboveEMA = close > emaValue
-
-// concatString = "Buy Sign"+ " isEmaAboveCPR: " + str.tostring(emaAboveCPR) + ":isNarrowCPR: " + str.tostring(isNarrowCPR) + " - pivotGreater: " + str.tostring(pivotGreater) + " - firstCandleAboveCPR: " + str.tostring(isCandleClosedAboveCpr)
-concatString = "Debug: " + "yesterDayClose: " + str.tostring(close[1]) + " - Today Open" + str.tostring(open)
-isNewDay = ta.change(dayofweek)
-
-// Plot the label on the first candle of each day
-if isNewDay
-    label.new(x=bar_index, y=close, text=concatString, color=color.yellow, textcolor=color.black, style=label.style_label_left, yloc=yloc.belowbar, size=size.small)
-
-
-// Calculate target levels
-targetLevel1 = strategy.position_avg_price * (1 + target1Percentage / 100)
-targetLevel2 = strategy.position_avg_price * (1 + target2Percentage / 100)
-targetLevel3 = strategy.position_avg_price * (1 + target3Percentage / 100)
-
-
-// Enter long position with 3 quantity when EMA is above CPR
-if isBullishCandle and hasVolume and not isGapUp and (isTodayNarrow or isPreviousDayNarrow) and isCandleClosedAboveEMA
-    if (not isAscending and close > dtc_[1] and isPreviousDayNarrow and isTodayNarrow and dbc_[1] > dtc_) or isAscending
-        if volume > 2 * volume[1]
-            strategy.entry("Long", strategy.long, qty = amountCanBeUsed / close, limit = high, stop = dbc_)
-
-// Exit 50% quantity at Target 1
-strategy.exit("Exit1", "Long", qty_percent = 50, limit = targetLevel1)
-
-// Exit 25% quantity at Target 2
-strategy.exit("Exit2", "Long", qty_percent = 25, limit = targetLevel2)
-
-// Exit remaining quantity at Target 3
-strategy.exit("Exit3", "Long", limit = targetLevel3)
-
-// Exit all positions at 3 PM IST
-if time >= exitTime
-    strategy.close_all("Time Up")
-
-if (close + close * 0.008) < emaValue
-    strategy.close_all("Going Below EMA")
+if (close) < dbc_
+    strategy.close_all("Going Below Lower Pivot")
